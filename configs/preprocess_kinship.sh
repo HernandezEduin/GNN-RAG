@@ -2,8 +2,8 @@
 set -euo pipefail
 
 conda run -n gnn_rag_custom python preprocess_custom_kgqa.py \
-  --dataset mquake_single \
-  --data_dir data/mquake_single \
-  --output_dir processed/maxhop/mquake_single \
+  --dataset kinship \
+  --data_dir data/kinship \
+  --output_dir processed/maxhop/kinship \
   --max_edges_per_example 1000 \
   "$@"

@@ -1,23 +1,21 @@
-conda run -n llms python evaluate_result_info.py \
-  --info_file checkpoint/rearev/mquake_single_seed0/mquake_single_seed0_test.info \
-  --processed_file processed/maxhop/mquake_single/test.json \
-  --data_dir data/mquake_single \
-  --dataset mquake_single \
-  --output_dir outputs/rearev_external_eval/mquake_single_seed0_with_seed \
-  --include_seed_entities
+#!/usr/bin/env bash
+set -euo pipefail
 
-conda run -n llms python evaluate_result_info.py \
-  --info_file checkpoint/rearev/mquake_single_seed42/mquake_single_seed42_test.info \
-  --processed_file processed/maxhop/mquake_single/test.json \
-  --data_dir data/mquake_single \
-  --dataset mquake_single \
-  --output_dir outputs/rearev_external_eval/mquake_single_seed42_with_seed \
-  --include_seed_entities
+if [ "$#" -gt 0 ]; then
+  SEEDS=("$@")
+else
+  SEEDS=(0 42 100)
+fi
+PROCESSED_FILE="${PROCESSED_FILE:-processed/maxhop/mquake_single/test.json}"
+DATA_DIR="${DATA_DIR:-data/mquake_single}"
+OUTPUT_SUFFIX="${OUTPUT_SUFFIX:-with_seed}"
 
-conda run -n llms python evaluate_result_info.py \
-  --info_file checkpoint/rearev/mquake_single_seed100/mquake_single_seed100_test.info \
-  --processed_file processed/maxhop/mquake_single/test.json \
-  --data_dir data/mquake_single \
-  --dataset mquake_single \
-  --output_dir outputs/rearev_external_eval/mquake_single_seed100_with_seed \
-  --include_seed_entities
+for SEED in "${SEEDS[@]}"; do
+  conda run -n llms python evaluate_result_info.py \
+    --info_file "checkpoint/rearev/mquake_single_seed${SEED}/mquake_single_seed${SEED}_test.info" \
+    --processed_file "${PROCESSED_FILE}" \
+    --data_dir "${DATA_DIR}" \
+    --dataset mquake_single \
+    --output_dir "outputs/rearev_external_eval/mquake_single_seed${SEED}_${OUTPUT_SUFFIX}" \
+    --include_seed_entities
+done
