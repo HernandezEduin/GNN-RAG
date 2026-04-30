@@ -9,7 +9,7 @@ EXPERIMENT_NAME="${EXPERIMENT_NAME:-mquake_single_seed${SEED}}"
 
 cd gnn
 
-conda run -n llms python main.py ReaRev \
+conda run --no-capture-output -n llms python main.py ReaRev \
   --name mquake_single \
   --data_folder "${DATA_FOLDER}" \
   --checkpoint_dir "${CHECKPOINT_DIR}" \

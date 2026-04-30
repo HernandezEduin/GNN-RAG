@@ -2,14 +2,14 @@
 set -euo pipefail
 
 SEED="${1:-0}"
-EPOCHS="${EPOCHS:-10}"
+EPOCHS="${EPOCHS:-100}"
 DATA_FOLDER="${DATA_FOLDER:-../processed/maxhop/kinship/}"
 CHECKPOINT_DIR="${CHECKPOINT_DIR:-../checkpoint/rearev/kinship_seed${SEED}}"
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-kinship_seed${SEED}}"
 
 cd gnn
 
-conda run -n llms python main.py ReaRev \
+conda run --no-capture-output -n llms python main.py ReaRev \
   --name kinship \
   --data_folder "${DATA_FOLDER}" \
   --checkpoint_dir "${CHECKPOINT_DIR}" \
