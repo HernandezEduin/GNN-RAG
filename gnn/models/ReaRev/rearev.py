@@ -122,7 +122,6 @@ class ReaRev(BaseModel):
         self.reasoning = ReasonGNNLayer(args, num_entity, num_relation, entity_dim, self.alg)
         if args['lm'] == 'lstm':
             self.instruction = LSTMInstruction(args, self.word_embedding, self.num_word)
-            self.relation_linear = nn.Linear(in_features=entity_dim, out_features=entity_dim)
         else:
             self.instruction = BERTInstruction(args, self.word_embedding, self.num_word, args['lm'])
             #self.relation_linear = nn.Linear(in_features=self.instruction.word_dim, out_features=entity_dim)

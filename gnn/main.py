@@ -1,4 +1,5 @@
 import argparse
+import random
 
 from utils import create_logger
 import torch
@@ -15,8 +16,13 @@ add_parse_args(parser)
 args = parser.parse_args()
 args.use_cuda = torch.cuda.is_available()
 
+random.seed(args.seed)
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
+if args.use_cuda:
+    torch.cuda.manual_seed_all(args.seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 if args.experiment_name == None:
     timestamp = str(int(time.time()))
     args.experiment_name = "{}-{}-{}".format(
@@ -27,8 +33,7 @@ if args.experiment_name == None:
 
 
 def main():
-    if not os.path.exists(args.checkpoint_dir):
-        os.mkdir(args.checkpoint_dir)
+    os.makedirs(args.checkpoint_dir, exist_ok=True)
     logger = create_logger(args)
     trainer = Trainer_KBQA(args=vars(args), model_name=args.model_name, logger=logger)
     if not args.is_eval:

@@ -233,7 +233,6 @@ class BasicDataLoader(object):
                         global_entity = self.entity2id[entity['text']]
                     else:
                         global_entity = self.entity2id[entity]
-                    global_entity = self.entity2id[entity['text']]
                 except:
                     global_entity = entity #self.entity2id[entity['text']]
 

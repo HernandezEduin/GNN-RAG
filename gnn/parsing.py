@@ -10,6 +10,15 @@ def bool_flag(v):
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
+
+def none_or_str(v):
+    if v is None:
+        return None
+    if isinstance(v, str) and v.lower() in ('none', 'null', ''):
+        return None
+    return v
+
+
 def add_shared_args(parser):
     parser.add_argument('--name', default='webqsp', type=str)
     parser.add_argument('--data_folder', default='data/webqsp/', type=str)
@@ -20,10 +29,10 @@ def add_shared_args(parser):
     parser.add_argument('--relation2id', default='relations.txt', type=str)
     parser.add_argument('--entity2id', default='entities.txt', type=str)
     parser.add_argument('--char2id', default='chars.txt', type=str)
-    parser.add_argument('--entity_emb_file', default=None, type=str)
-    parser.add_argument('--relation_emb_file', default=None, type=str)
+    parser.add_argument('--entity_emb_file', default=None, type=none_or_str)
+    parser.add_argument('--relation_emb_file', default=None, type=none_or_str)
     parser.add_argument('--relation_word_emb', default=True, type=bool_flag)
-    parser.add_argument('--word_emb_file', default='word_emb.npy', type=str)
+    parser.add_argument('--word_emb_file', default='word_emb.npy', type=none_or_str)
     parser.add_argument('--rel_word_ids', default='rel_word_idx.npy', type=str)
     parser.add_argument('--kge_frozen', default=0, type=int)
     parser.add_argument('--lm', default='lstm', type=str, choices=['lstm', 'bert', 'roberta', 'sbert', 't5','sbert2', 'dbert', 'simcse', 'relbert'])
@@ -56,7 +65,7 @@ def add_shared_args(parser):
     parser.add_argument('--is_eval', action='store_true')
     parser.add_argument('--checkpoint_dir', default='checkpoint/pretrain/', type=str)
     parser.add_argument('--log_level', type=str, default='info')
-    parser.add_argument('--experiment_name', default='', type=str)
+    parser.add_argument('--experiment_name', default=None, type=str)
     parser.add_argument('--load_experiment', default=None, type=str)
     parser.add_argument('--load_ckpt_file', default=None, type=str)
     parser.add_argument('--eps', default=0.95, type=float) # threshold for f1
@@ -78,8 +87,12 @@ def add_parse_args(parser):
     parser_graftnet = subparsers.add_parser("GraftNet")
     create_parser_graftnet(parser_graftnet)
 
-    parser_nutrea = subparsers.add_parser("NuTrea")
-    create_parser_nutrea(parser_nutrea)
+    # The upstream repo references NuTrea in a few places, but this checkout
+    # does not ship its parser/model implementation. Avoid registering a
+    # broken subcommand so the ReaRev CLI remains usable.
+    if 'create_parser_nutrea' in globals():
+        parser_nutrea = subparsers.add_parser("NuTrea")
+        create_parser_nutrea(parser_nutrea)
 
 
 def create_parser_rearev(parser):
