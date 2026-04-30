@@ -3,11 +3,16 @@ import json
 import re
 from collections import deque
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from utils.custom_kgqa import CustomKGQADataset, QAExample
 
 Triple = Tuple[str, str, str]
+
+
+# ---------------------------------------------------------------------------
+# Text and graph helpers
+# ---------------------------------------------------------------------------
 
 def tokenize_for_vocab(text: str) -> List[str]:
     text = str(text).strip().lower()
@@ -139,6 +144,73 @@ def split_name(split: Optional[str]) -> str:
     return value
 
 
+# ---------------------------------------------------------------------------
+# Question variant helpers
+# ---------------------------------------------------------------------------
+
+def parse_split_filter(value: str) -> Optional[Set[str]]:
+    normalized = {split_name(part.strip()) for part in value.split(",") if part.strip()}
+    if not normalized or "all" in normalized:
+        return None
+    return normalized
+
+
+def unique_texts(values: Iterable[str]) -> List[str]:
+    seen = set()
+    result = []
+    for value in values:
+        text = str(value).strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
+
+
+def question_variants_for_example(
+    example: QAExample,
+    mode: str,
+    split: str,
+    variant_splits: Optional[Set[str]],
+) -> List[Tuple[str, str, str, int]]:
+    """Return (question_id, question_text, variant_name, variant_index).
+
+    Paraphrase expansion is intentionally done at preprocessing time so each
+    paraphrased question can be evaluated independently while sharing the same
+    topic entity, answers, and local subgraph.
+    """
+    if variant_splits is not None and split not in variant_splits:
+        return [(example.question_id, example.question, "original", 0)]
+
+    paraphrases = unique_texts(example.question_paraphrases)
+    if mode == "original":
+        return [(example.question_id, example.question, "original", 0)]
+    if mode == "paraphrased":
+        if not paraphrases:
+            return [(example.question_id, example.question, "original_no_paraphrases", 0)]
+        return [
+            (f"{example.question_id}:paraphrase:{idx}", question, "paraphrase", idx)
+            for idx, question in enumerate(paraphrases, start=1)
+        ]
+    if mode == "original_and_paraphrased":
+        variants = [(example.question_id, example.question, "original", 0)]
+        for idx, question in enumerate(unique_texts(paraphrases), start=1):
+            if question == example.question:
+                continue
+            variants.append((f"{example.question_id}:paraphrase:{idx}", question, "paraphrase", idx))
+        return variants
+    raise ValueError(f"Unsupported question variant mode: {mode}")
+
+
+def load_vocab(path: Path) -> List[str]:
+    with path.open(encoding="utf-8") as handle:
+        return [line.rstrip("\n") for line in handle if line.rstrip("\n")]
+
+
+# ---------------------------------------------------------------------------
+# GNN-RAG/ReaRev JSON conversion
+# ---------------------------------------------------------------------------
+
 def preprocess_dataset(
     dataset_name: str,
     data_dir: Path,
@@ -148,6 +220,9 @@ def preprocess_dataset(
     extra_hops: int,
     include_reverse_traversal: bool,
     limit_per_split: Optional[int],
+    question_variants: str,
+    variant_splits: str,
+    vocab_from: Optional[Path],
 ) -> dict:
     dataset = CustomKGQADataset(dataset_name, data_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -166,7 +241,16 @@ def preprocess_dataset(
         entities.add(t)
         relations.add(r)
 
-    vocab = {"UNK"}
+    fixed_vocab = load_vocab(vocab_from) if vocab_from is not None else None
+    vocab = set(fixed_vocab or ["UNK"])
+    variant_split_filter = parse_split_filter(variant_splits)
+
+    def add_vocab_text(text: str) -> None:
+        if fixed_vocab is not None:
+            return
+        for token in tokenize_for_vocab(text):
+            vocab.add(token)
+
     split_counts = {"train": 0, "dev": 0, "test": 0}
     output_files = {
         "train": (output_dir / "train.json").open("w", encoding="utf-8"),
@@ -181,13 +265,10 @@ def preprocess_dataset(
             if limit_per_split is not None and split_counts[split] >= limit_per_split:
                 continue
 
-            for token in tokenize_for_vocab(example.question):
-                vocab.add(token)
             for label in example.start_labels + example.gold_answer_labels:
-                for token in tokenize_for_vocab(label):
-                    vocab.add(token)
+                add_vocab_text(label)
 
-            obj = example_to_gnn_json(
+            base_obj = example_to_gnn_json(
                 example=example,
                 entity_labels=dataset.node_labels,
                 adjacency=adjacency,
@@ -195,20 +276,42 @@ def preprocess_dataset(
                 max_hops=effective_max_hops,
                 extra_hops=extra_hops,
             )
-            output_files[split].write(json.dumps(obj, ensure_ascii=False) + "\n")
-            split_counts[split] += 1
+            variants = question_variants_for_example(
+                example=example,
+                mode=question_variants,
+                split=split,
+                variant_splits=variant_split_filter,
+            )
+            for variant_id, question_text, variant_name, variant_index in variants:
+                if limit_per_split is not None and split_counts[split] >= limit_per_split:
+                    break
+                add_vocab_text(question_text)
+                obj = dict(base_obj)
+                obj["id"] = variant_id
+                obj["question"] = question_text
+                obj["metadata"] = dict(base_obj["metadata"])
+                obj["metadata"].update(
+                    {
+                        "base_question_id": example.question_id,
+                        "original_question": example.question,
+                        "question_variant": variant_name,
+                        "question_variant_index": variant_index,
+                    }
+                )
+                output_files[split].write(json.dumps(obj, ensure_ascii=False) + "\n")
+                split_counts[split] += 1
     finally:
         for handle in output_files.values():
             handle.close()
 
     for relation_id, relation_label in dataset.relation_labels.items():
         for value in (relation_id, relation_label):
-            for token in tokenize_for_vocab(value.replace("_", " ")):
-                vocab.add(token)
+            add_vocab_text(value.replace("_", " "))
 
     write_lines(output_dir / "entities.txt", sorted(entities))
     write_lines(output_dir / "relations.txt", sorted(relations))
-    write_lines(output_dir / "vocab.txt", sorted(vocab))
+    vocab_values = fixed_vocab if fixed_vocab is not None else sorted(vocab)
+    write_lines(output_dir / "vocab.txt", vocab_values)
 
     summary = {
         "dataset": dataset_name,
@@ -216,13 +319,16 @@ def preprocess_dataset(
         "output_dir": str(output_dir),
         "num_entities": len(entities),
         "num_relations": len(relations),
-        "num_vocab": len(vocab),
+        "num_vocab": len(vocab_values),
         "split_counts": split_counts,
         "max_edges_per_example": max_edges_per_example,
         "dataset_max_hops": dataset_max_hops,
         "max_hops": effective_max_hops,
         "extra_hops": extra_hops,
         "include_reverse_traversal": include_reverse_traversal,
+        "question_variants": question_variants,
+        "variant_splits": "all" if variant_split_filter is None else sorted(variant_split_filter),
+        "vocab_from": str(vocab_from) if vocab_from is not None else None,
         "files": {
             "train": str(output_dir / "train.json"),
             "dev": str(output_dir / "dev.json"),
@@ -249,6 +355,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--extra_hops", default=0, type=int, help="Add extra BFS hops beyond each row's Hops.")
     parser.add_argument("--include_reverse_traversal", action="store_true", help="Use reverse edges only for collecting subgraphs; stored triples keep original direction.")
     parser.add_argument("--limit_per_split", default=None, type=int, help="Optional debugging limit per train/dev/test split.")
+    parser.add_argument(
+        "--question_variants",
+        default="original",
+        choices=("original", "paraphrased", "original_and_paraphrased"),
+        help="Write original questions, one row per Question-Paraphrased entry, or both.",
+    )
+    parser.add_argument(
+        "--variant_splits",
+        default="all",
+        help="Comma-separated splits where question_variants applies, e.g. test. Other splits keep original questions.",
+    )
+    parser.add_argument(
+        "--vocab_from",
+        default=None,
+        type=Path,
+        help="Copy an existing vocab.txt order, useful for paraphrased eval with an already trained LSTM checkpoint.",
+    )
     return parser.parse_args()
 
 
@@ -263,6 +386,9 @@ def main() -> None:
         extra_hops=args.extra_hops,
         include_reverse_traversal=args.include_reverse_traversal,
         limit_per_split=args.limit_per_split,
+        question_variants=args.question_variants,
+        variant_splits=args.variant_splits,
+        vocab_from=args.vocab_from,
     )
     print(json.dumps(summary, indent=2, ensure_ascii=False))
 

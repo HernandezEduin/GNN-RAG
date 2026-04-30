@@ -1,8 +1,6 @@
 import argparse
 import json
-import ast
 from pathlib import Path
-import sys
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 import pandas as pd
@@ -208,6 +206,10 @@ def evaluate(
                 "dataset": dataset,
                 "index": index,
                 "question_id": processed_row.get("id"),
+                "base_question_id": processed_row.get("metadata", {}).get("base_question_id"),
+                "question_variant": processed_row.get("metadata", {}).get("question_variant"),
+                "question_variant_index": processed_row.get("metadata", {}).get("question_variant_index"),
+                "row_index": row_index,
                 "question": processed_row.get("question"),
                 "hops": hop,
                 "start_entity_ids": processed_row.get("entities", []),

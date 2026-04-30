@@ -17,6 +17,10 @@ TEXT_ID_COLUMNS = ("EID", "QID", "RID", "Property", "ID", "id", "entity_id", "re
 TEXT_LABEL_COLUMNS = ("Title", "Label", "Name", "label", "name", "title")
 
 
+# ---------------------------------------------------------------------------
+# CSV and literal parsing helpers
+# ---------------------------------------------------------------------------
+
 def extract_literals(column, flatten: bool = False):
     """
     Safely parse CSV cells that contain serialized Python list literals.
@@ -135,12 +139,17 @@ def read_triplets(path: Path) -> List[Tuple[str, str, str]]:
     return triples
 
 
+# ---------------------------------------------------------------------------
+# Custom KGQA dataset objects
+# ---------------------------------------------------------------------------
+
 @dataclass
 class QAExample:
     dataset: str
     row_index: int
     question_id: str
     question: str
+    question_paraphrases: List[str]
     start_ids: List[str]
     start_labels: List[str]
     gold_answer_ids: List[str]
@@ -223,6 +232,7 @@ class CustomKGQADataset:
         answer_id_col = first_existing(self.columns, ("Answer-Entity", "Answer-ID", "Answers-Entity", "answer_entity"))
         answer_label_col = first_existing(self.columns, ("Answer", "Answers", "answer"))
         hop_col = first_existing(self.columns, ("Hops", "Hop", "hop"))
+        paraphrase_col = first_existing(self.columns, ("Question-Paraphrased", "Question_Paraphrased", "paraphrases"))
 
         start_ids = cell_to_list(row[start_id_col]) if start_id_col else []
         start_labels = cell_to_list(row[start_label_col]) if start_label_col else []
@@ -248,12 +258,14 @@ class CustomKGQADataset:
         gold_paths = parse_paths(row.get("Paths", None))
         gold_path_labels = parse_paths(row.get("Paths-Label", None))
         relation_paths = relation_paths_from_columns(row, gold_paths)
+        question_paraphrases = cell_to_list(row[paraphrase_col]) if paraphrase_col else []
 
         return QAExample(
             dataset=self.dataset,
             row_index=row_index,
             question_id=str(row[qid_col]) if qid_col else str(row_index),
             question=str(row[question_col]),
+            question_paraphrases=[str(v) for v in question_paraphrases],
             start_ids=[str(v) for v in start_ids],
             start_labels=[str(v) for v in start_labels],
             gold_answer_ids=[str(v) for v in gold_answer_ids],
@@ -322,6 +334,10 @@ def relation_paths_from_columns(row: pd.Series, gold_paths: List[List[Tuple[str,
     return [[triple[1] for triple in path] for path in gold_paths]
 
 
+# ---------------------------------------------------------------------------
+# Original MetaQA compatibility
+# ---------------------------------------------------------------------------
+
 def load_original_metaqa_qa(path: Path, hop: int, split: str) -> pd.DataFrame:
     rows = []
     bracket_re = re.compile(r"\[([^\]]+)\]")
@@ -342,6 +358,7 @@ def load_original_metaqa_qa(path: Path, hop: int, split: str) -> pd.DataFrame:
                 {
                     "Question-Number": idx,
                     "Question": clean_question,
+                    "Question-Paraphrased": [],
                     "Source": source,
                     "Source-Entity": source,
                     "Answer": answer_list,
@@ -352,6 +369,10 @@ def load_original_metaqa_qa(path: Path, hop: int, split: str) -> pd.DataFrame:
             )
     return pd.DataFrame(rows)
 
+
+# ---------------------------------------------------------------------------
+# Lightweight BFS retrieval baseline
+# ---------------------------------------------------------------------------
 
 def shortest_path_triples(graph: nx.MultiDiGraph, start: str, target: str, undirected: bool) -> List[Tuple[str, str, str]]:
     if start == target:
