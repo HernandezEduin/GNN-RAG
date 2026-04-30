@@ -115,6 +115,7 @@ Train three seeds for mean/std reporting:
 ```bash
 for s in 0 42 100; do bash configs/train_kinship.sh "$s"; done
 for s in 0 42 100; do bash configs/train_mquake_single.sh "$s"; done
+for s in 0 42 100; do bash configs/train_mquake_multi.sh "$s"; done
 ```
 
 Checkpoints and logs are written under:
