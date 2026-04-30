@@ -228,6 +228,12 @@ def load_vocab(path: Path) -> List[str]:
         return [line.rstrip("\n") for line in handle if line.rstrip("\n")]
 
 
+def safe_average(total: int, count: int) -> Optional[float]:
+    if count == 0:
+        return None
+    return total / count
+
+
 # ---------------------------------------------------------------------------
 # GNN-RAG/ReaRev JSON conversion
 # ---------------------------------------------------------------------------
@@ -273,6 +279,10 @@ def preprocess_dataset(
             vocab.add(token)
 
     split_counts = {"train": 0, "dev": 0, "test": 0}
+    subgraph_stats = {
+        split: {"num_examples": 0, "unique_entities": 0, "triplets": 0}
+        for split in split_counts
+    }
     output_files = {
         "train": JsonArrayWriter(output_dir / "train.json"),
         "dev": JsonArrayWriter(output_dir / "dev.json"),
@@ -321,6 +331,18 @@ def preprocess_dataset(
                 )
                 output_files[split].write(obj)
                 split_counts[split] += 1
+                subgraph_entities = {
+                    str(entity_id)
+                    for entity_id in obj.get("subgraph", {}).get("entities", [])
+                }
+                subgraph_triplets = {
+                    tuple(triple)
+                    for triple in obj.get("subgraph", {}).get("tuples", [])
+                    if len(triple) >= 3
+                }
+                subgraph_stats[split]["num_examples"] += 1
+                subgraph_stats[split]["unique_entities"] += len(subgraph_entities)
+                subgraph_stats[split]["triplets"] += len(subgraph_triplets)
     finally:
         for handle in output_files.values():
             handle.close()
@@ -333,6 +355,17 @@ def preprocess_dataset(
     write_lines(output_dir / "relations.txt", sorted(relations))
     vocab_values = fixed_vocab if fixed_vocab is not None else sorted(vocab)
     write_lines(output_dir / "vocab.txt", vocab_values)
+    total_examples = sum(values["num_examples"] for values in subgraph_stats.values())
+    total_unique_entities = sum(values["unique_entities"] for values in subgraph_stats.values())
+    total_triplets = sum(values["triplets"] for values in subgraph_stats.values())
+    subgraph_stats_by_split = {
+        split: {
+            "num_examples": values["num_examples"],
+            "avg_unique_entities_per_subgraph": safe_average(values["unique_entities"], values["num_examples"]),
+            "avg_triplets_per_subgraph": safe_average(values["triplets"], values["num_examples"]),
+        }
+        for split, values in subgraph_stats.items()
+    }
 
     summary = {
         "dataset": dataset_name,
@@ -342,6 +375,9 @@ def preprocess_dataset(
         "num_relations": len(relations),
         "num_vocab": len(vocab_values),
         "split_counts": split_counts,
+        "avg_unique_entities_per_subgraph": safe_average(total_unique_entities, total_examples),
+        "avg_triplets_per_subgraph": safe_average(total_triplets, total_examples),
+        "subgraph_stats_by_split": subgraph_stats_by_split,
         "max_edges_per_example": max_edges_per_example,
         "dataset_max_hops": dataset_max_hops,
         "max_hops": effective_max_hops,
