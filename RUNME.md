@@ -43,6 +43,9 @@ bash configs/eval_kinship.sh 0 42 100
 bash configs/eval_mquake_single.sh 0 42 100
 ```
 
+Metric files are written next to the checkpoint `.info` files, e.g.
+`checkpoint/rearev/kinship_seed0/kinship_seed0_metrics.json`.
+
 Paraphrased MQuAKE test evaluation:
 
 ```bash

@@ -145,10 +145,8 @@ The external evaluator reports:
 - `h1`: top retained candidate is a gold answer.
 - `mrr`: reciprocal rank of the first gold answer.
 - `per_hop`: H1/MRR grouped by hop count.
-- `subgraph_overlap`: overlap between gold path triples and the candidate-induced subgraph.
-- `relation_overlap`: overlap between gold path relations and relations in the candidate-induced subgraph.
 
-The `.info` file already contains the model-retained candidates after the repo's `eps` cutoff. Leave `--top_k` unset for faithful ReaRev-style evaluation.
+The `.info` file already contains the model-retained candidates after the repo's `eps` cutoff. Leave `--top_k` unset for faithful ReaRev-style evaluation. Metrics are written next to the checkpoint `.info` file as `<experiment_name>_metrics.json`.
 
 ## Paraphrased Evaluation
 
