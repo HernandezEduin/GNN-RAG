@@ -15,6 +15,20 @@ import time
 import os
 
 
+def load_json_records(filename):
+    """Load either legacy JSONL records or pretty JSON arrays."""
+    with open(filename, encoding="utf-8") as f_in:
+        text = f_in.read().strip()
+    if not text:
+        return []
+    if text.startswith("["):
+        records = json.loads(text)
+        if not isinstance(records, list):
+            raise ValueError("{} must contain a JSON array or JSONL records".format(filename))
+        return records
+    return [json.loads(line) for line in text.splitlines() if line.strip()]
+
+
 class BasicDataLoader(object):
     """ 
     Basic Dataloader contains all the functions to read questions and KGs from json files and
@@ -42,17 +56,15 @@ class BasicDataLoader(object):
         skip_index = set()
         index = 0
 
-        with open(data_file) as f_in:
-            for line in tqdm(f_in):
-                if index == config['max_train'] and data_type == "train": break  #break if we reach max_question_size
-                line = json.loads(line)
+        for line in tqdm(load_json_records(data_file)):
+            if index == config['max_train'] and data_type == "train": break  #break if we reach max_question_size
                 
-                if len(line['entities']) == 0:
-                    skip_index.add(index)
-                    continue
-                self.data.append(line)
-                self.max_facts = max(self.max_facts, 2 * len(line['subgraph']['tuples']))
-                index += 1
+            if len(line['entities']) == 0:
+                skip_index.add(index)
+                continue
+            self.data.append(line)
+            self.max_facts = max(self.max_facts, 2 * len(line['subgraph']['tuples']))
+            index += 1
 
         print("skip", skip_index)
         print('max_facts: ', self.max_facts)

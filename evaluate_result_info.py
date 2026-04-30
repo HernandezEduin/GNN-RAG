@@ -10,16 +10,23 @@ from utils.custom_kgqa import parse_paths, read_mapping_csv, relation_paths_from
 Triple = Tuple[str, str, str]
 
 def load_jsonl(path: Path) -> List[Dict[str, Any]]:
+    text = path.read_text(encoding="utf-8").strip()
+    if not text:
+        return []
+    if text.startswith("["):
+        rows = json.loads(text)
+        if not isinstance(rows, list):
+            raise ValueError(f"{path} must contain a JSON array or JSONL records")
+        return rows
     rows = []
-    with path.open(encoding="utf-8") as handle:
-        for line_no, line in enumerate(handle, start=1):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rows.append(json.loads(line))
-            except json.JSONDecodeError as exc:
-                raise ValueError(f"Could not parse JSON on {path}:{line_no}: {exc}") from exc
+    for line_no, line in enumerate(text.splitlines(), start=1):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Could not parse JSON on {path}:{line_no}: {exc}") from exc
     return rows
 
 
@@ -270,7 +277,7 @@ def parse_args() -> argparse.Namespace:
         description="Externally evaluate GNN retriever .info outputs with H1, MRR, and candidate-induced evidence overlap."
     )
     parser.add_argument("--info_file", required=True, type=Path, help="Model output .info JSONL file.")
-    parser.add_argument("--processed_file", required=True, type=Path, help="Processed split JSONL, usually test.json.")
+    parser.add_argument("--processed_file", required=True, type=Path, help="Processed split file, usually test.json. JSON array and JSONL are both supported.")
     parser.add_argument("--output_dir", required=True, type=Path, help="Directory for metrics.json and details.jsonl.")
     parser.add_argument("--data_dir", type=Path, default=None, help="Original custom dataset dir with qa_nhop.csv for gold Paths.")
     parser.add_argument("--dataset", default=None, help="Dataset name to copy into outputs.")

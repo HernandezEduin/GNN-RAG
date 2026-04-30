@@ -48,7 +48,7 @@ def collect_subgraph(
     example: QAExample,
     adjacency: Dict[str, List[Tuple[str, Triple]]],
     max_depth: int,
-    max_edges: int,
+    max_edges: Optional[int],
 ) -> Tuple[List[str], List[Triple]]:
     """Build the per-question dense subgraph expected by gnn/dataset_load.py.
 
@@ -71,7 +71,7 @@ def collect_subgraph(
             queue.append(start_id)
 
     seen_triples = set(triples)
-    while queue and len(triples) < max_edges:
+    while queue and (max_edges is None or len(triples) < max_edges):
         node = queue.popleft()
         depth = seen_depth[node]
         if depth >= max_depth:
@@ -83,7 +83,7 @@ def collect_subgraph(
                 h, _, t = triple
                 entities.add(h)
                 entities.add(t)
-                if len(triples) >= max_edges:
+                if max_edges is not None and len(triples) >= max_edges:
                     break
             if neighbor not in seen_depth:
                 seen_depth[neighbor] = depth + 1
@@ -103,7 +103,7 @@ def example_to_gnn_json(
     example: QAExample,
     entity_labels: Dict[str, str],
     adjacency: Dict[str, List[Tuple[str, Triple]]],
-    max_edges_per_example: int,
+    max_edges_per_example: Optional[int],
     max_hops: Optional[int],
     extra_hops: int,
 ) -> dict:
@@ -135,6 +135,27 @@ def example_to_gnn_json(
 
 def write_lines(path: Path, values: Iterable[str]) -> None:
     path.write_text("".join(f"{value}\n" for value in values), encoding="utf-8")
+
+
+class JsonArrayWriter:
+    def __init__(self, path: Path):
+        self.path = path
+        self.handle = path.open("w", encoding="utf-8")
+        self.count = 0
+        self.handle.write("[\n")
+
+    def write(self, obj: Dict) -> None:
+        if self.count:
+            self.handle.write(",\n")
+        rendered = json.dumps(obj, indent=4, ensure_ascii=False)
+        self.handle.write("\n".join(f"    {line}" for line in rendered.splitlines()))
+        self.count += 1
+
+    def close(self) -> None:
+        if self.count:
+            self.handle.write("\n")
+        self.handle.write("]\n")
+        self.handle.close()
 
 
 def split_name(split: Optional[str]) -> str:
@@ -215,7 +236,7 @@ def preprocess_dataset(
     dataset_name: str,
     data_dir: Path,
     output_dir: Path,
-    max_edges_per_example: int,
+    max_edges_per_example: Optional[int],
     max_hops: Optional[int],
     extra_hops: int,
     include_reverse_traversal: bool,
@@ -253,9 +274,9 @@ def preprocess_dataset(
 
     split_counts = {"train": 0, "dev": 0, "test": 0}
     output_files = {
-        "train": (output_dir / "train.json").open("w", encoding="utf-8"),
-        "dev": (output_dir / "dev.json").open("w", encoding="utf-8"),
-        "test": (output_dir / "test.json").open("w", encoding="utf-8"),
+        "train": JsonArrayWriter(output_dir / "train.json"),
+        "dev": JsonArrayWriter(output_dir / "dev.json"),
+        "test": JsonArrayWriter(output_dir / "test.json"),
     }
     try:
         for example in dataset.examples():
@@ -298,7 +319,7 @@ def preprocess_dataset(
                         "question_variant_index": variant_index,
                     }
                 )
-                output_files[split].write(json.dumps(obj, ensure_ascii=False) + "\n")
+                output_files[split].write(obj)
                 split_counts[split] += 1
     finally:
         for handle in output_files.values():
@@ -350,7 +371,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset", required=True, help="Dataset name for metadata, e.g. kinship or mquake_single.")
     parser.add_argument("--data_dir", required=True, type=Path, help="Directory containing qa_nhop.csv and triplets.txt.")
     parser.add_argument("--output_dir", required=True, type=Path, help="Processed dataset folder to create.")
-    parser.add_argument("--max_edges_per_example", default=1000, type=int, help="Cap local subgraph triples per QA row.")
+    parser.add_argument(
+        "--max_edges_per_example",
+        default=None,
+        type=int,
+        help="Optional cap on local subgraph triples per QA row. If omitted, include all unique triples up to max_hops.",
+    )
     parser.add_argument("--max_hops", default=None, type=int, help="Override subgraph BFS depth. Defaults to the dataset-wide maximum Hops value.")
     parser.add_argument("--extra_hops", default=0, type=int, help="Add extra BFS hops beyond each row's Hops.")
     parser.add_argument("--include_reverse_traversal", action="store_true", help="Use reverse edges only for collecting subgraphs; stored triples keep original direction.")

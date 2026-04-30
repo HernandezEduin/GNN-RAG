@@ -14,7 +14,7 @@ When writing about this code, cite GNN-RAG for the repository/pipeline context a
 The custom integration lives outside the original repo code where possible:
 
 - `utils/custom_kgqa.py`: robust loader for custom KGQA CSV/KG data.
-- `preprocess_custom_kgqa.py`: converts custom datasets to the JSONL format expected by `gnn/dataset_load.py`.
+- `preprocess_custom_kgqa.py`: converts custom datasets to the JSON format consumed by `gnn/dataset_load.py`.
 - `evaluate_result_info.py`: external evaluator for ReaRev `.info` outputs.
 - `configs/`: reproducible preprocessing, training, checkpoint evaluation, and external metric scripts.
 
@@ -53,6 +53,8 @@ Question-Paraphrased  # optional
 
 The preprocessing uses the provided `Source-Entity` as the retrieval anchor and does not perform entity linking. By default, it builds each question subgraph using the dataset-wide maximum `Hops` value.
 
+Processed `train.json`, `dev.json`, and `test.json` are written as human-readable JSON arrays with `indent=4`. The loader still accepts older JSONL files for backward compatibility.
+
 ## Environments
 
 Dataset preprocessing:
@@ -72,6 +74,12 @@ conda run -n llms python gnn/main.py ReaRev --help
 ```bash
 bash configs/preprocess_kinship.sh
 bash configs/preprocess_mquake_single.sh
+```
+
+By default, preprocessing does **not** cap the number of triples per question subgraph; it includes all unique triples reachable within the effective hop limit. To cap the subgraph size, set `MAX_EDGES_PER_EXAMPLE`:
+
+```bash
+MAX_EDGES_PER_EXAMPLE=1000 bash configs/preprocess_mquake_single.sh
 ```
 
 Outputs are written to:

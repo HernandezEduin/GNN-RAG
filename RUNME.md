@@ -7,6 +7,14 @@ bash configs/preprocess_kinship.sh
 bash configs/preprocess_mquake_single.sh
 ```
 
+The processed split files are pretty JSON arrays with `indent=4`. Leaving
+`MAX_EDGES_PER_EXAMPLE` unset includes all unique triples reachable up to the
+effective max hop. To cap subgraphs, run for example:
+
+```bash
+MAX_EDGES_PER_EXAMPLE=1000 bash configs/preprocess_mquake_single.sh
+```
+
 Train one seed:
 
 ```bash
