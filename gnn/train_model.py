@@ -126,15 +126,28 @@ class Trainer_KBQA(object):
         # eval_acc = inference(self.model, self.valid_data, self.entity2id, self.args)
         # self.evaluate(self.test_data, self.test_batch_size)
         print("Start Training------------------")
-        for epoch in range(start_epoch, end_epoch + 1):
+        epoch_range = tqdm(
+            range(start_epoch, end_epoch + 1),
+            desc="Training epochs",
+            unit="epoch",
+            dynamic_ncols=True,
+        )
+        for epoch in epoch_range:
             st = time.time()
-            loss, extras, h1_list_all, f1_list_all = self.train_epoch()
+            loss, extras, h1_list_all, f1_list_all = self.train_epoch(epoch + 1)
+            train_h1 = np.mean(h1_list_all)
+            train_f1 = np.mean(f1_list_all)
+            epoch_range.set_postfix(
+                loss=f"{loss:.4f}",
+                train_h1=f"{train_h1:.4f}",
+                train_f1=f"{train_f1:.4f}",
+            )
 
             if self.decay_rate > 0:
                 self.scheduler.step()
             
             self.logger.info("Epoch: {}, loss : {:.4f}, time: {}".format(epoch + 1, loss, time.time() - st))
-            self.logger.info("Training h1 : {:.4f}, f1 : {:.4f}".format(np.mean(h1_list_all), np.mean(f1_list_all)))
+            self.logger.info("Training h1 : {:.4f}, f1 : {:.4f}".format(train_h1, train_f1))
             
             if (epoch + 1) % eval_every == 0:
                 eval_f1, eval_h1, eval_em = self.evaluate(self.valid_data, self.test_batch_size)
@@ -206,7 +219,7 @@ class Trainer_KBQA(object):
         test_f1, test_hits, test_ems = self.evaluate(self.test_data, self.test_batch_size, write_info=True)
         self.logger.info("TEST F1: {:.4f}, H1: {:.4f}, EM {:.4f}".format(test_f1, test_hits, test_ems))
 
-    def train_epoch(self):
+    def train_epoch(self, epoch=None):
         self.model.train()
         self.train_data.reset_batches(is_sequential=False)
         losses = []
@@ -215,7 +228,15 @@ class Trainer_KBQA(object):
         num_epoch = math.ceil(self.train_data.num_data / self.args['batch_size'])
         h1_list_all = []
         f1_list_all = []
-        for iteration in tqdm(range(num_epoch)):
+        desc = "Training batches" if epoch is None else "Epoch {} batches".format(epoch)
+        batch_range = tqdm(
+            range(num_epoch),
+            desc=desc,
+            unit="batch",
+            leave=False,
+            dynamic_ncols=True,
+        )
+        for iteration in batch_range:
             batch = self.train_data.get_batch(iteration, self.args['batch_size'], self.args['fact_drop'])
             
             self.optim_model.zero_grad()
@@ -229,6 +250,11 @@ class Trainer_KBQA(object):
                                            self.args['gradient_clip'])
             self.optim_model.step()
             losses.append(loss.item())
+            batch_range.set_postfix(
+                loss=f"{np.mean(losses):.4f}",
+                h1=f"{np.mean(h1_list_all):.4f}",
+                f1=f"{np.mean(f1_list_all):.4f}",
+            )
         extras = [0, 0]
         return np.mean(losses), extras, h1_list_all, f1_list_all
 
@@ -250,4 +276,3 @@ class Trainer_KBQA(object):
         model = self.model
         #self.logger.info("Load param of {} from {}.".format(", ".join(list(model_state_dict.keys())), filename))
         model.load_state_dict(model_state_dict, strict=False)
-
