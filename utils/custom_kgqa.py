@@ -77,7 +77,10 @@ def cell_to_list(value: Any) -> List[str]:
     if value == "":
         return []
     if value.startswith("[") or value.startswith("("):
-        parsed = ast.literal_eval(value)
+        try:
+            parsed = ast.literal_eval(value)
+        except (ValueError, SyntaxError):
+            return [value]
         if isinstance(parsed, (list, tuple)):
             return [str(v) for v in parsed]
         return [str(parsed)]
