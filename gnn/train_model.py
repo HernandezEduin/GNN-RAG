@@ -27,8 +27,8 @@ class Trainer_KBQA(object):
         self.args = args
         self.logger = logger
         self.best_dev_performance = 0.0
-        self.best_h1 = 0.0
-        self.best_f1 = 0.0
+        self.best_h1 = -1.0
+        self.best_f1 = -1.0
         self.best_h1b = 0.0
         self.best_f1b = 0.0
         self.eps = args['eps']
@@ -194,22 +194,31 @@ class Trainer_KBQA(object):
 
     def evaluate_best(self):
         filename = os.path.join(self.args['checkpoint_dir'], "{}-h1.ckpt".format(self.args['experiment_name']))
-        self.load_ckpt(filename)
-        eval_f1, eval_h1, eval_em = self.evaluate(self.test_data, self.test_batch_size, write_info=False)
-        self.logger.info("Best h1 evaluation")
-        self.logger.info("TEST F1: {:.4f}, H1: {:.4f}, EM {:.4f}".format(eval_f1, eval_h1, eval_em))
+        if os.path.exists(filename):
+            self.load_ckpt(filename)
+            eval_f1, eval_h1, eval_em = self.evaluate(self.test_data, self.test_batch_size, write_info=False)
+            self.logger.info("Best h1 evaluation")
+            self.logger.info("TEST F1: {:.4f}, H1: {:.4f}, EM {:.4f}".format(eval_f1, eval_h1, eval_em))
+        else:
+            self.logger.info("Skip best h1 evaluation; missing checkpoint {}".format(filename))
 
         filename = os.path.join(self.args['checkpoint_dir'], "{}-f1.ckpt".format(self.args['experiment_name']))
-        self.load_ckpt(filename)
-        eval_f1, eval_h1, eval_em = self.evaluate(self.test_data, self.test_batch_size,  write_info=False)
-        self.logger.info("Best f1 evaluation")
-        self.logger.info("TEST F1: {:.4f}, H1: {:.4f}, EM {:.4f}".format(eval_f1, eval_h1, eval_em))
+        if os.path.exists(filename):
+            self.load_ckpt(filename)
+            eval_f1, eval_h1, eval_em = self.evaluate(self.test_data, self.test_batch_size,  write_info=False)
+            self.logger.info("Best f1 evaluation")
+            self.logger.info("TEST F1: {:.4f}, H1: {:.4f}, EM {:.4f}".format(eval_f1, eval_h1, eval_em))
+        else:
+            self.logger.info("Skip best f1 evaluation; missing checkpoint {}".format(filename))
 
         filename = os.path.join(self.args['checkpoint_dir'], "{}-final.ckpt".format(self.args['experiment_name']))
-        self.load_ckpt(filename)
-        eval_f1, eval_h1, eval_em = self.evaluate(self.test_data, self.test_batch_size, write_info=False)
-        self.logger.info("Final evaluation")
-        self.logger.info("TEST F1: {:.4f}, H1: {:.4f}, EM {:.4f}".format(eval_f1, eval_h1, eval_em))
+        if os.path.exists(filename):
+            self.load_ckpt(filename)
+            eval_f1, eval_h1, eval_em = self.evaluate(self.test_data, self.test_batch_size, write_info=False)
+            self.logger.info("Final evaluation")
+            self.logger.info("TEST F1: {:.4f}, H1: {:.4f}, EM {:.4f}".format(eval_f1, eval_h1, eval_em))
+        else:
+            self.logger.info("Skip final evaluation; missing checkpoint {}".format(filename))
 
     def evaluate_single(self, filename):
         if filename is not None:

@@ -16,17 +16,39 @@ import os
 
 
 def load_json_records(filename):
-    """Load either legacy JSONL records or pretty JSON arrays."""
+    """Load either legacy JSONL records or pretty JSON arrays.
+
+    JSONL files are streamed so --max_train can stop early without loading a
+    huge authors' MetaQA file into memory. Pretty JSON arrays are still read as
+    a whole because they are only used by our smaller custom-preprocessed files.
+    """
     with open(filename, encoding="utf-8") as f_in:
-        text = f_in.read().strip()
-    if not text:
-        return []
-    if text.startswith("["):
-        records = json.loads(text)
-        if not isinstance(records, list):
-            raise ValueError("{} must contain a JSON array or JSONL records".format(filename))
-        return records
-    return [json.loads(line) for line in text.splitlines() if line.strip()]
+        first_char = ""
+        while True:
+            char = f_in.read(1)
+            if not char:
+                return
+            if not char.isspace():
+                first_char = char
+                break
+
+        f_in.seek(0)
+        if first_char == "[":
+            records = json.load(f_in)
+            if not isinstance(records, list):
+                raise ValueError("{} must contain a JSON array or JSONL records".format(filename))
+            for record in records:
+                yield record
+            return
+
+        for line_no, line in enumerate(f_in, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                yield json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError("Invalid JSON in {}:{}: {}".format(filename, line_no, exc)) from exc
 
 
 class BasicDataLoader(object):
@@ -175,7 +197,10 @@ class BasicDataLoader(object):
         """
         max_count = 0
         for line in self.data:
-            word_list = line["question"].split(' ')
+            if self.tokenize == 'lstm':
+                word_list = LSTMTokenizer.tokenize_sent(line["question"])
+            else:
+                word_list = line["question"].split(' ')
             max_count = max(max_count, len(word_list))
 
         

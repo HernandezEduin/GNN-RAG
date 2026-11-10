@@ -15,12 +15,10 @@ class LSTMTokenizer():
         #if self.data_type == "train":
         #    random.shuffle(tokens)
         for j, word in enumerate(tokens):
-            if j < self.max_query_word:
-                    if word in self.word2id:
-                        query_text[j] = self.word2id[word]
-                        
-            else:
-                query_text[j] = len(self.word2id)
+            if j >= self.max_query_word:
+                break
+            if word in self.word2id:
+                query_text[j] = self.word2id[word]
 
         return query_text
 
