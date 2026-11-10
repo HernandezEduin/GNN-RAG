@@ -172,8 +172,9 @@ def merge_stats(target: Dict[str, Any], summary: Dict[str, Any]) -> None:
     ):
         target[field] += summary[field]
     for kind in ("tuple", "entity"):
-        minimum = summary[f"min_{kind}s_per_subgraph"]
-        maximum = summary[f"max_{kind}s_per_subgraph"]
+        plural = "tuples" if kind == "tuple" else "entities"
+        minimum = summary[f"min_{plural}_per_subgraph"]
+        maximum = summary[f"max_{plural}_per_subgraph"]
         if minimum is not None:
             key = f"{kind}_min"
             target[key] = minimum if target[key] is None else min(target[key], minimum)
