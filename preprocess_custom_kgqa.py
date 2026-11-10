@@ -100,19 +100,24 @@ def collect_subgraph(
     adjacency: Dict[str, List[Tuple[str, Triple]]],
     max_depth: int,
     max_edges: Optional[int],
+    force_gold_paths: bool = True,
 ) -> Tuple[List[str], List[Triple]]:
-    """Build the per-question dense subgraph expected by gnn/dataset_load.py.
+    """Build a question subgraph using BFS, optionally seeding gold evidence.
 
-    Custom datasets already provide the topic entity, so this never performs
-    entity linking. Gold path triples are forced into the subgraph before BFS
-    because the GNN trainer cannot learn an answer that is absent locally.
+    Without gold forcing, only topic entities and KG traversal determine the
+    subgraph. Gold answers remain evaluation labels but are not added to the
+    subgraph, and no answer-conditioned path search is performed.
     """
-    gold_paths = example.gold_paths
-    if not gold_paths:
-        gold_paths = best_effort_answer_paths(example, adjacency, max_depth)
-    forced_triples = unique_triples(triple for path in gold_paths for triple in path)
+    forced_triples: List[Triple] = []
+    if force_gold_paths:
+        gold_paths = example.gold_paths
+        if not gold_paths:
+            gold_paths = best_effort_answer_paths(example, adjacency, max_depth)
+        forced_triples = unique_triples(triple for path in gold_paths for triple in path)
     triples: List[Triple] = list(forced_triples)
-    entities: Set[str] = set(example.start_ids) | set(example.gold_answer_ids)
+    entities: Set[str] = set(example.start_ids)
+    if force_gold_paths:
+        entities.update(example.gold_answer_ids)
     for h, _, t in forced_triples:
         entities.add(h)
         entities.add(t)
@@ -160,6 +165,7 @@ def example_to_gnn_json(
     max_edges_per_example: Optional[int],
     max_hops: Optional[int],
     extra_hops: int,
+    force_gold_paths: bool = True,
 ) -> dict:
     depth = max_hops if max_hops is not None else max(0, (example.hops or 1) + extra_hops)
     subgraph_entities, subgraph_triples = collect_subgraph(
@@ -167,6 +173,7 @@ def example_to_gnn_json(
         adjacency=adjacency,
         max_depth=depth,
         max_edges=max_edges_per_example,
+        force_gold_paths=force_gold_paths,
     )
     return {
         "id": example.question_id,
@@ -304,6 +311,7 @@ def preprocess_dataset(
     question_variants: str,
     variant_splits: str,
     vocab_from: Optional[Path],
+    force_gold_paths: bool = True,
 ) -> dict:
     dataset = CustomKGQADataset(dataset_name, data_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -334,7 +342,8 @@ def preprocess_dataset(
 
     split_counts = {"train": 0, "dev": 0, "test": 0}
     subgraph_stats = {
-        split: {"num_examples": 0, "unique_entities": 0, "triplets": 0}
+        split: {"num_examples": 0, "unique_entities": 0, "triplets": 0,
+                "any_answer_present": 0, "all_answers_present": 0}
         for split in split_counts
     }
     output_files = {
@@ -360,6 +369,7 @@ def preprocess_dataset(
                 max_edges_per_example=max_edges_per_example,
                 max_hops=effective_max_hops,
                 extra_hops=extra_hops,
+                force_gold_paths=force_gold_paths,
             )
             variants = question_variants_for_example(
                 example=example,
@@ -397,6 +407,11 @@ def preprocess_dataset(
                 subgraph_stats[split]["num_examples"] += 1
                 subgraph_stats[split]["unique_entities"] += len(subgraph_entities)
                 subgraph_stats[split]["triplets"] += len(subgraph_triplets)
+                gold_answers = set(example.gold_answer_ids)
+                if gold_answers and gold_answers.intersection(subgraph_entities):
+                    subgraph_stats[split]["any_answer_present"] += 1
+                if gold_answers and gold_answers.issubset(subgraph_entities):
+                    subgraph_stats[split]["all_answers_present"] += 1
             if limit_per_split is not None and all(count >= limit_per_split for count in split_counts.values()):
                 break
     finally:
@@ -419,6 +434,10 @@ def preprocess_dataset(
             "num_examples": values["num_examples"],
             "avg_unique_entities_per_subgraph": safe_average(values["unique_entities"], values["num_examples"]),
             "avg_triplets_per_subgraph": safe_average(values["triplets"], values["num_examples"]),
+            "any_answer_present": values["any_answer_present"],
+            "any_answer_present_rate": safe_average(values["any_answer_present"], values["num_examples"]),
+            "all_answers_present": values["all_answers_present"],
+            "all_answers_present_rate": safe_average(values["all_answers_present"], values["num_examples"]),
         }
         for split, values in subgraph_stats.items()
     }
@@ -435,6 +454,7 @@ def preprocess_dataset(
         "avg_triplets_per_subgraph": safe_average(total_triplets, total_examples),
         "subgraph_stats_by_split": subgraph_stats_by_split,
         "max_edges_per_example": max_edges_per_example,
+        "force_gold_paths": force_gold_paths,
         "dataset_max_hops": dataset_max_hops,
         "max_hops": effective_max_hops,
         "extra_hops": extra_hops,
@@ -472,6 +492,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max_hops", default=None, type=int, help="Override subgraph BFS depth. Defaults to the dataset-wide maximum Hops value.")
     parser.add_argument("--extra_hops", default=0, type=int, help="Add extra BFS hops beyond each row's Hops.")
     parser.add_argument("--include_reverse_traversal", action="store_true", help="Use reverse edges only for collecting subgraphs; stored triples keep original direction.")
+    parser.add_argument(
+        "--no_force_gold_paths",
+        dest="force_gold_paths",
+        action="store_false",
+        help="Build BFS-only subgraphs without gold paths, answers, or answer-conditioned fallback paths.",
+    )
     parser.add_argument("--limit_per_split", default=None, type=int, help="Optional debugging limit per train/dev/test split.")
     parser.add_argument(
         "--question_variants",
@@ -507,6 +533,7 @@ def main() -> None:
         question_variants=args.question_variants,
         variant_splits=args.variant_splits,
         vocab_from=args.vocab_from,
+        force_gold_paths=args.force_gold_paths,
     )
     print(json.dumps(summary, indent=2, ensure_ascii=False))
 
