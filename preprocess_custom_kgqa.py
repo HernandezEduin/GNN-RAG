@@ -44,6 +44,57 @@ def unique_triples(triples: Iterable[Triple]) -> List[Triple]:
     return result
 
 
+def best_effort_answer_paths(
+    example: QAExample,
+    adjacency: Dict[str, List[Tuple[str, Triple]]],
+    max_depth: int,
+) -> List[List[Triple]]:
+    """Find bounded KG paths when the dataset does not provide gold Paths.
+
+    MetaQA-style data may provide only topic entities and answers. In that
+    case, we use the same traversal graph used for subgraph collection and
+    keep the first path found from any topic entity to each gold answer.
+    Stored triples keep their original KG direction, even when reverse
+    traversal is enabled.
+    """
+    targets = {str(answer_id) for answer_id in example.gold_answer_ids}
+    if not targets:
+        return []
+
+    found: Dict[str, List[Triple]] = {}
+    queue = deque()
+    seen_depth: Dict[str, int] = {}
+    paths: Dict[str, List[Triple]] = {}
+
+    for start_id in example.start_ids:
+        if start_id not in adjacency or start_id in seen_depth:
+            continue
+        seen_depth[start_id] = 0
+        paths[start_id] = []
+        queue.append(start_id)
+        if start_id in targets:
+            found[start_id] = []
+
+    while queue and len(found) < len(targets):
+        node = queue.popleft()
+        depth = seen_depth[node]
+        if depth >= max_depth:
+            continue
+        for neighbor, triple in adjacency.get(node, []):
+            if neighbor in seen_depth:
+                continue
+            path = paths[node] + [triple]
+            seen_depth[neighbor] = depth + 1
+            paths[neighbor] = path
+            if neighbor in targets:
+                found[neighbor] = path
+                if len(found) == len(targets):
+                    break
+            queue.append(neighbor)
+
+    return [path for answer_id, path in found.items() if path]
+
+
 def collect_subgraph(
     example: QAExample,
     adjacency: Dict[str, List[Tuple[str, Triple]]],
@@ -56,7 +107,10 @@ def collect_subgraph(
     entity linking. Gold path triples are forced into the subgraph before BFS
     because the GNN trainer cannot learn an answer that is absent locally.
     """
-    forced_triples = unique_triples(triple for path in example.gold_paths for triple in path)
+    gold_paths = example.gold_paths
+    if not gold_paths:
+        gold_paths = best_effort_answer_paths(example, adjacency, max_depth)
+    forced_triples = unique_triples(triple for path in gold_paths for triple in path)
     triples: List[Triple] = list(forced_triples)
     entities: Set[str] = set(example.start_ids) | set(example.gold_answer_ids)
     for h, _, t in forced_triples:
@@ -343,6 +397,8 @@ def preprocess_dataset(
                 subgraph_stats[split]["num_examples"] += 1
                 subgraph_stats[split]["unique_entities"] += len(subgraph_entities)
                 subgraph_stats[split]["triplets"] += len(subgraph_triplets)
+            if limit_per_split is not None and all(count >= limit_per_split for count in split_counts.values()):
+                break
     finally:
         for handle in output_files.values():
             handle.close()
