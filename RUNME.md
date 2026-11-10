@@ -5,6 +5,7 @@ Preprocess the custom datasets:
 ```bash
 bash configs/preprocess_kinship.sh
 bash configs/preprocess_mquake_single.sh
+bash configs/preprocess_metaqa.sh
 ```
 
 The processed split files are pretty JSON arrays with `indent=4`. Leaving
@@ -14,6 +15,17 @@ effective max hop. To cap subgraphs, run for example:
 ```bash
 MAX_EDGES_PER_EXAMPLE=1000 bash configs/preprocess_mquake_single.sh
 ```
+
+MetaQA uses reverse traversal and is much larger, so its config defaults to
+`MAX_EDGES_PER_EXAMPLE=100`. Raise it explicitly when needed:
+
+```bash
+MAX_EDGES_PER_EXAMPLE=1000 bash configs/preprocess_metaqa.sh
+```
+
+MetaQA has no `Paths`/`Path-Key`, so preprocessing derives best-effort
+support paths from the KG with bounded BFS and then builds the subgraph around
+those paths.
 
 Train one seed:
 

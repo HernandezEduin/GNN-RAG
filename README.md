@@ -74,6 +74,7 @@ conda run -n llms python gnn/main.py ReaRev --help
 ```bash
 bash configs/preprocess_kinship.sh
 bash configs/preprocess_mquake_single.sh
+bash configs/preprocess_metaqa.sh
 ```
 
 By default, preprocessing does **not** cap the number of triples per question subgraph; it includes all unique triples reachable within the effective hop limit. To cap the subgraph size, set `MAX_EDGES_PER_EXAMPLE`:
@@ -82,11 +83,20 @@ By default, preprocessing does **not** cap the number of triples per question su
 MAX_EDGES_PER_EXAMPLE=1000 bash configs/preprocess_mquake_single.sh
 ```
 
+MetaQA is the exception in the configs: because it uses reverse traversal and has many more QA rows, `configs/preprocess_metaqa.sh` uses `MAX_EDGES_PER_EXAMPLE=100` by default. You can raise it explicitly:
+
+```bash
+MAX_EDGES_PER_EXAMPLE=1000 bash configs/preprocess_metaqa.sh
+```
+
+MetaQA does not include `Paths` or `Path-Key` columns. When gold paths are absent, preprocessing builds best-effort support paths by running bounded BFS from the topic entity to the gold answer entities using the same traversal setting as subgraph collection. With reverse traversal enabled, the stored triples still keep their original KG direction.
+
 Outputs are written to:
 
 ```text
 processed/maxhop/kinship/
 processed/maxhop/mquake_single/
+processed/maxhop/metaqa/
 ```
 
 Each processed folder contains:
@@ -116,6 +126,7 @@ Train three seeds for mean/std reporting:
 for s in 0 42 100; do bash configs/train_kinship.sh "$s"; done
 for s in 0 42 100; do bash configs/train_mquake_single.sh "$s"; done
 for s in 0 42 100; do bash configs/train_mquake_multi.sh "$s"; done
+for s in 0 42 100; do bash configs/train_metaqa_authors_nhop.sh "$s"; done
 ```
 
 Checkpoints and logs are written under:
@@ -123,6 +134,44 @@ Checkpoints and logs are written under:
 ```text
 checkpoint/rearev/kinship_seed*/
 checkpoint/rearev/mquake_single_seed*/
+checkpoint/rearev/metaqa_authors_nhop_seed*/
+```
+
+## Authors' MetaQA N-Hop
+
+The ReaRev authors' processed MetaQA folders can be placed under:
+
+```text
+data_authors/metaqa-1hop/
+data_authors/metaqa-2hop/
+data_authors/metaqa-3hop/
+```
+
+Their `entities.txt` and `relations.txt` files are identical across hop settings, but the vocabularies differ. To build a single n-hop dataset, concatenate the split files and rebuild one `vocab.txt` from all merged questions:
+
+```bash
+bash configs/merge_metaqa_authors_nhop.sh
+```
+
+By default, the merge writes one third of each hop's train split to reduce ReaRev loader memory pressure, while dev/test and `vocab.txt` remain built from the full authors' data. Override the train fraction when needed:
+
+```bash
+TRAIN_FRACTION=0.25 bash configs/merge_metaqa_authors_nhop.sh
+TRAIN_FRACTION=1.0 bash configs/merge_metaqa_authors_nhop.sh
+```
+
+This writes:
+
+```text
+data_authors/metaqa-nhop/
+```
+
+The merge keeps entity/relation ids unchanged, rewrites duplicate question ids as `1hop_*`, `2hop_*`, and `3hop_*`, adds `source_hop` metadata, and ignores `word_emb_300d.npy`.
+
+Train the merged authors' MetaQA n-hop setting without word embeddings:
+
+```bash
+bash configs/train_metaqa_authors_nhop.sh 0
 ```
 
 ## Evaluate Checkpoints
